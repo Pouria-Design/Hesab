@@ -1,0 +1,12 @@
+{
+  "name": "حساب",
+  "short_name": "حساب",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "dir": "rtl",
+  "lang": "fa",
+  "background_color": "#f5f6f8",
+  "theme_color": "#f5f6f8",
+  "icons": [{ "src": "/images/logo/logo-icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

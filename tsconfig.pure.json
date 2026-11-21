@@ -1,0 +1,2 @@
+{ "compilerOptions": { "target":"ES2020","module":"esnext","moduleResolution":"bundler","strict":true,"noEmit":true,"skipLibCheck":true,"lib":["dom","dom.iterable","esnext"],"types":[] },
+  "files": ["src/lib/finance.ts","src/lib/sync.ts","src/i18n/fa.ts","src/i18n/intl.ts","src/i18n/languages.ts"] }
