@@ -1,32 +1,66 @@
-const V = "hb-v4";
+const V = "hb-v6";
 const SHELL = ["/", "/manifest.json", "/icon.svg"];
-const API_DB = "fin";
+const DB = "fin";
 
-self.addEventListener("install", (e) => e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL))));
-self.addEventListener("activate", (e) =>
-  e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== V).map((k) => caches.delete(k))))));
+self.addEventListener("install", (e) => {
+  self.skipWaiting();
+  e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL)));
+});
 
-self.addEventListener("fetch", (e) => {
-  const u = new URL(e.request.url);
-  if (e.request.method !== "GET" || u.origin !== location.origin) return;
-  e.respondWith(
-    fetch(e.request)
-      .then((r) => {
-        caches.open(V).then((c) => c.put(e.request, r.clone()));
-        return r;
-      })
-      .catch(() => caches.match(e.request, { ignoreSearch: true }).then((r) => r || (e.request.mode === "navigate" ? caches.match("/") : undefined)))
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
+    caches
+      .keys()
+      .then((ks) => Promise.all(ks.filter((k) => k !== V).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
-// ارسال صف در پس‌زمینه: توکن و آدرس API را صفحه داخل IndexedDB گذاشته
+function withTimeout(p, ms) {
+  return new Promise((res, rej) => {
+    const t = setTimeout(() => rej(new Error("timeout")), ms);
+    p.then(
+      (v) => { clearTimeout(t); res(v); },
+      (err) => { clearTimeout(t); rej(err); }
+    );
+  });
+}
+
+self.addEventListener("fetch", (e) => {
+  const req = e.request;
+  const u = new URL(req.url);
+  if (req.method !== "GET" || u.origin !== location.origin || u.pathname.startsWith("/api")) return;
+
+  // پاسخ را قبل از برگرداندن کپی می‌کنیم؛ بعد از مصرف بدنه، کپی ممکن نیست
+  const put = (r) => {
+    if (r.ok) {
+      const copy = r.clone();
+      caches.open(V).then((c) => c.put(req, copy));
+    }
+    return r;
+  };
+
+  if (req.mode === "navigate") {
+    e.respondWith(
+      withTimeout(fetch(req).then(put), 3000).catch(() =>
+        caches.match(req, { ignoreSearch: true }).then((r) => r || caches.match("/"))
+      )
+    );
+    return;
+  }
+
+  // فایل‌های نسخه‌دار Next و آیکون‌ها: از کش، و اگر نبود از شبکه
+  e.respondWith(caches.match(req, { ignoreSearch: true }).then((hit) => hit || fetch(req).then(put)));
+});
+
+// ارسال صف در پس‌زمینه
 self.addEventListener("sync", (e) => {
   if (e.tag === "flush") e.waitUntil(flushQueue());
 });
 
 function openDb() {
   return new Promise((res, rej) => {
-    const r = indexedDB.open(API_DB, 2);
+    const r = indexedDB.open(DB, 2);
     r.onupgradeneeded = () => {
       const d = r.result;
       if (!d.objectStoreNames.contains("q")) d.createObjectStore("q", { keyPath: "id" });
@@ -45,11 +79,10 @@ async function flushQueue() {
   if (!token || !api) return;
   const items = await req(db.transaction("q").objectStore("q").getAll());
   for (const it of items) {
-    const r = await fetch(`${api}?token=${encodeURIComponent(token)}&app=1`, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify(it.body),
-    });
+    const url = new URL(api, self.location.origin);
+    url.searchParams.set("token", token);
+    url.searchParams.set("app", "1");
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(it.body) });
     const j = await r.json();
     if (!j.ok) return;
     await req(db.transaction("q", "readwrite").objectStore("q").delete(it.id));

@@ -1,11 +1,11 @@
 "use client";
 
 import { logout } from "@/components/auth-gate";
+import { useFinance } from "@/context/finance-context";
 import { GearIcon, LayoutGridIcon, ListIcon, LockIcon, PieChartIcon, TagIcon } from "@/icons";
+import { toFaDigits } from "@/lib/finance";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useFinance } from "@/context/finance-context";
-import { toFaDigits } from "@/lib/finance";
 
 type IconType = typeof LayoutGridIcon;
 
@@ -45,7 +45,7 @@ function NavLink({ href, label, Icon, active, onClose }: { href: string; label: 
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const path = usePathname();
-  const { pendingCount } = useFinance();
+  const { pendingCount, syncInfo, refresh } = useFinance();
   const active = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
 
   return (
@@ -76,8 +76,20 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       </nav>
 
       <div className="space-y-1 border-t border-gray-200 pt-3 dark:border-gray-800">
-        <div className={`px-3 pb-2 text-xs ${pendingCount > 0 ? "text-orange-500" : "text-gray-400 dark:text-gray-500"}`}>
-          {pendingCount > 0 ? `${toFaDigits(String(pendingCount))} تغییر در صف ارسال` : "همه‌ی تغییرات ذخیره شده‌اند"}
+        <div className="space-y-1.5 px-3 pb-2 text-xs">
+          <div className={pendingCount > 0 ? "text-orange-500" : "text-gray-400 dark:text-gray-500"}>
+            {pendingCount > 0 ? `${toFaDigits(String(pendingCount))} تغییر در صف ارسال` : "همه‌ی تغییرات ذخیره شده‌اند"}
+          </div>
+          <div className={syncInfo.error ? "text-red-500" : "text-gray-400 dark:text-gray-500"}>
+            {syncInfo.error
+              ? "دریافت اطلاعات از سرور ممکن نشد"
+              : syncInfo.at
+                ? `آخرین همگام‌سازی: ${toFaDigits(syncInfo.at)}`
+                : "در حال اتصال به سرور..."}
+          </div>
+          <button type="button" onClick={refresh} className="text-brand-600 hover:underline dark:text-brand-400">
+            همگام‌سازی الان
+          </button>
         </div>
         <NavLink href="/settings" label="تنظیمات" Icon={GearIcon} active={active("/settings")} onClose={onClose} />
         <button

@@ -15,6 +15,8 @@ interface FinanceCtx {
   dismissUndo: () => void;
   lastDeleted: Tx | null;
   pendingCount: number;
+  syncInfo: { at: string; error: boolean };
+  refresh: () => void;
   accent: string;
   setAccent: (c: string) => void;
   resetToken: () => void;
@@ -36,6 +38,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const [accent, setAccentState] = useState("#12b76a");
   const [pendingCount, setPendingCount] = useState(0);
   const [lastDeleted, setLastDeleted] = useState<Tx | null>(null);
+  const [syncInfo, setSyncInfo] = useState({ at: "", error: false });
 
   const refreshPending = useCallback(() => {
     pending().then(setPendingCount).catch(() => undefined);
@@ -85,20 +88,42 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         setNeedToken(true);
         return;
       }
-      if (typeof d === "string") return;
+      if (typeof d === "string") {
+        setSyncInfo((prev) => ({ at: prev.at, error: true }));
+        return;
+      }
       setData(d);
       localStorage.setItem("fin-cache", JSON.stringify(d));
+      setSyncInfo({ at: jnow().time, error: false });
     },
     [refreshPending]
   );
 
+  const refresh = useCallback(() => {
+    if (token) sync(token);
+  }, [token, sync]);
+
   useEffect(() => {
     if (!token) return;
-    const run = () => sync(token);
-    run();
-    addEventListener("online", run);
-    return () => removeEventListener("online", run);
-  }, [token, sync]);
+    refresh();
+    addEventListener("online", refresh);
+    return () => removeEventListener("online", refresh);
+  }, [token, refresh]);
+
+  // داده‌ها وقتی برنامه جلو می‌آید و هر ۶۰ ثانیه تازه می‌شوند
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const id = setInterval(onVisible, 60000);
+    document.addEventListener("visibilitychange", onVisible);
+    addEventListener("focus", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      removeEventListener("focus", onVisible);
+    };
+  }, [refresh]);
 
   const write = useCallback(
     (op: Op) => {
@@ -162,7 +187,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider
-      value={{ data, month, shift, write, deleteTx, undoDelete, dismissUndo, lastDeleted, pendingCount, accent, setAccent, resetToken }}
+      value={{ data, month, shift, write, deleteTx, undoDelete, dismissUndo, lastDeleted, pendingCount, syncInfo, refresh, accent, setAccent, resetToken }}
     >
       {children}
       <TokenDialog open={needToken} onSave={saveToken} />
