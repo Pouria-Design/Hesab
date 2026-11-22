@@ -14,7 +14,7 @@ export function TxEdit({ tx, onClose }: { tx: Tx | null; onClose: () => void }) 
 }
 
 function TxEditForm({ tx, onClose }: { tx: Tx; onClose: () => void }) {
-  const { data, write } = useFinance();
+  const { data, write, deleteTx } = useFinance();
   const [title, setTitle] = useState(tx.title);
   const [cat, setCat] = useState(tx.category);
 
@@ -27,7 +27,7 @@ function TxEditForm({ tx, onClose }: { tx: Tx; onClose: () => void }) {
 
   const remove = () => {
     if (!confirm("این تراکنش حذف شود؟")) return;
-    write({ action: "delete", id: tx.id });
+    deleteTx(tx);
     onClose();
   };
 

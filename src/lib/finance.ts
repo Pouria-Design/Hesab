@@ -190,3 +190,54 @@ export function applyOp(d: Data, op: Op): Data {
       return { ...d, rules: [...d.rules, [op.keyword, op.category]] };
   }
 }
+
+export function daysInMonth(key: string): number {
+  const m = +key.slice(5);
+  return m <= 6 ? 31 : m <= 11 ? 30 : 29;
+}
+
+// تراکنش‌های احتمالاً تکراری: مبلغ و نوع یکسان و کمتر از ۵ دقیقه فاصله
+export function findDuplicates(tx: Tx[]): Set<string> {
+  const mins = (t: Tx) => {
+    const [h, m] = (t.time || "0:0").split(":").map(Number);
+    return h * 60 + m;
+  };
+  const out = new Set<string>();
+  for (let i = 0; i < tx.length; i++)
+    for (let j = i + 1; j < tx.length; j++) {
+      const a = tx[i];
+      const b = tx[j];
+      if (a.total > 0 && a.date === b.date && a.type === b.type && a.total === b.total && Math.abs(mins(a) - mins(b)) <= 5) {
+        out.add(a.id);
+        out.add(b.id);
+      }
+    }
+  return out;
+}
+
+// پیش‌بینی: هزینه‌ی تا امروز تقسیم بر روزهای گذشته، ضربدر روزهای ماه
+export function forecastSpend(d: Data, month: string, today: string): number | null {
+  if (monthOf(today) !== month) return null;
+  const elapsed = +today.slice(8);
+  if (!elapsed) return null;
+  const spent = sumOf(inMonth(d, month, "برداشت"));
+  return Math.round((spent / elapsed) * daysInMonth(month));
+}
+
+// هزینه و درآمد ۱۲ ماه سال جاری
+export function yearSummary(d: Data, month: string) {
+  const y = month.slice(0, 4);
+  return Array.from({ length: 12 }, (_, i) => {
+    const key = `${y}.${String(i + 1).padStart(2, "0")}`;
+    return { key, out: sumOf(inMonth(d, key, "برداشت")), inc: sumOf(inMonth(d, key, "واریز")) };
+  });
+}
+
+// دسته‌هایی که از ۸۰٪ سقف بودجه‌شان گذشته‌اند
+export function budgetAlerts(d: Data, month: string): { category: string; spent: number; limit: number }[] {
+  const spent = byCategory(inMonth(d, month, "برداشت"));
+  return d.budgets
+    .map((r) => ({ category: r[0], spent: spent[r[0]] || 0, limit: +r[1] || 0 }))
+    .filter((x) => x.limit > 0 && x.spent >= x.limit * 0.8)
+    .sort((a, b) => b.spent / b.limit - a.spent / a.limit);
+}

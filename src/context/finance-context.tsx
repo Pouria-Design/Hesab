@@ -1,7 +1,7 @@
 "use client";
 
 import TokenDialog from "@/components/finance/token-dialog";
-import { applyOp, type Data, EMPTY, jnow, type Op, addMonths } from "@/lib/finance";
+import { addMonths, applyOp, type Data, EMPTY, jnow, type Op, type Tx } from "@/lib/finance";
 import { API_URL, enqueue, fetchAll, flushSerial, kvSet, pending } from "@/lib/sync";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from "react";
 
@@ -10,6 +10,11 @@ interface FinanceCtx {
   month: string;
   shift: (n: number) => void;
   write: (op: Op) => void;
+  deleteTx: (t: Tx) => void;
+  undoDelete: () => void;
+  dismissUndo: () => void;
+  lastDeleted: Tx | null;
+  pendingCount: number;
   accent: string;
   setAccent: (c: string) => void;
   resetToken: () => void;
@@ -29,8 +34,13 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [needToken, setNeedToken] = useState(false);
   const [accent, setAccentState] = useState("#12b76a");
+  const [pendingCount, setPendingCount] = useState(0);
+  const [lastDeleted, setLastDeleted] = useState<Tx | null>(null);
 
-  // بار اول: کش محلی نشان داده می‌شود، بعد سرور جواب می‌دهد
+  const refreshPending = useCallback(() => {
+    pending().then(setPendingCount).catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     setMonth(jnow().date.slice(0, 7));
     const cached = localStorage.getItem("fin-cache");
@@ -45,8 +55,9 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     } else {
       setNeedToken(true);
     }
+    refreshPending();
     navigator.serviceWorker?.register("/sw.js");
-  }, []);
+  }, [refreshPending]);
 
   useEffect(() => {
     const st = document.documentElement.style;
@@ -56,26 +67,30 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     st.setProperty("--color-brand-50", `color-mix(in srgb, ${accent} 12%, white)`);
   }, [accent]);
 
-  const sync = useCallback(async (t: string) => {
-    const r = await flushSerial(t);
-    if (r === "auth") {
-      localStorage.removeItem("fin-token");
-      setToken(null);
-      setNeedToken(true);
-      return;
-    }
-    if (r !== "ok" || (await pending()) > 0) return;
-    const d = await fetchAll(t);
-    if (d === "auth") {
-      localStorage.removeItem("fin-token");
-      setToken(null);
-      setNeedToken(true);
-      return;
-    }
-    if (typeof d === "string") return;
-    setData(d);
-    localStorage.setItem("fin-cache", JSON.stringify(d));
-  }, []);
+  const sync = useCallback(
+    async (t: string) => {
+      const r = await flushSerial(t);
+      refreshPending();
+      if (r === "auth") {
+        localStorage.removeItem("fin-token");
+        setToken(null);
+        setNeedToken(true);
+        return;
+      }
+      if (r !== "ok" || (await pending()) > 0) return;
+      const d = await fetchAll(t);
+      if (d === "auth") {
+        localStorage.removeItem("fin-token");
+        setToken(null);
+        setNeedToken(true);
+        return;
+      }
+      if (typeof d === "string") return;
+      setData(d);
+      localStorage.setItem("fin-cache", JSON.stringify(d));
+    },
+    [refreshPending]
+  );
 
   useEffect(() => {
     if (!token) return;
@@ -85,7 +100,6 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     return () => removeEventListener("online", run);
   }, [token, sync]);
 
-  // هر تغییر: فوری روی صفحه، بعد در صف، بعد ارسال (یا ارسال در پس‌زمینه وقتی اینترنت برگشت)
   const write = useCallback(
     (op: Op) => {
       setData((prev) => {
@@ -97,11 +111,33 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         navigator.serviceWorker?.ready
           .then((r) => (r as unknown as { sync?: { register(tag: string): Promise<void> } }).sync?.register("flush"))
           .catch(() => undefined);
+        refreshPending();
         if (token) sync(token);
       });
     },
-    [token, sync]
+    [token, sync, refreshPending]
   );
+
+  const deleteTx = useCallback(
+    (t: Tx) => {
+      write({ action: "delete", id: t.id });
+      // فقط تراکنش‌های دستی برگشت داده می‌شوند؛ پیامکی‌ها متن و موجودی‌شان را از دست می‌دهند
+      setLastDeleted(t.source === "manual" ? t : null);
+    },
+    [write]
+  );
+
+  const dismissUndo = useCallback(() => setLastDeleted(null), []);
+
+  const undoDelete = useCallback(() => {
+    if (!lastDeleted) return;
+    const t = lastDeleted;
+    write({
+      action: "add",
+      t: { id: t.id, date: t.date, time: t.time, type: t.type, amount: t.total, account: t.account, title: t.title, category: t.category },
+    });
+    setLastDeleted(null);
+  }, [lastDeleted, write]);
 
   const saveToken = (t: string) => {
     localStorage.setItem("fin-token", t);
@@ -125,7 +161,9 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const shift = (n: number) => setMonth((m) => addMonths(m, n));
 
   return (
-    <Ctx.Provider value={{ data, month, shift, write, accent, setAccent, resetToken }}>
+    <Ctx.Provider
+      value={{ data, month, shift, write, deleteTx, undoDelete, dismissUndo, lastDeleted, pendingCount, accent, setAccent, resetToken }}
+    >
       {children}
       <TokenDialog open={needToken} onSave={saveToken} />
     </Ctx.Provider>

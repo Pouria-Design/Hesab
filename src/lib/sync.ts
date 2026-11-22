@@ -1,7 +1,7 @@
 import type { Data, Op } from "./finance";
 
 // shortcut: ID دیپلوی Apps Script را اینجا و در sw.js (از kv خوانده می‌شود) یکی نگه دار
-export const API_URL = "https://script.google.com/macros/s/AKfycbxMLd9fbLtcGWIdSwM3XV7rp5I6DJsc2NVfql9eH_efGd-vSYfc4Idb0OLaHkVA7ih5QA/exec";
+export const API_URL = "https://script.google.com/macros/s/PUT_ID_HERE/exec";
 
 const DB_NAME = "fin";
 let dbp: Promise<IDBDatabase> | null = null;
@@ -33,7 +33,9 @@ interface QueueItem {
   body: Op;
 }
 
-export const enqueue = (body: Op) => store("q", "readwrite", (s) => s.put({ id: crypto.randomUUID(), body }));
+let seq = 0;
+export const enqueue = (body: Op) =>
+  store("q", "readwrite", (s) => s.put({ id: `${String(Date.now()).padStart(15, "0")}-${String(++seq).padStart(6, "0")}`, body }));
 const queued = () => store<QueueItem[]>("q", "readonly", (s) => s.getAll());
 const dequeue = (id: string) => store("q", "readwrite", (s) => s.delete(id));
 export const pending = async () => (await queued()).length;

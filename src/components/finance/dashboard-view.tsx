@@ -2,7 +2,7 @@
 
 import { useFinance } from "@/context/finance-context";
 import { useTheme } from "@/context/theme-context";
-import { balanceOf, byCategory, faNum, inMonth, jnow, norm, recentTx, sumOf, toFaDigits, toFaMoney, type Tx } from "@/lib/finance";
+import { MONTHS, balanceOf, budgetAlerts, byCategory, faNum, forecastSpend, inMonth, jnow, norm, recentTx, sumOf, toFaDigits, toFaMoney, type Tx, yearSummary } from "@/lib/finance";
 import type { ApexOptions } from "apexcharts";
 import dynamic from "next/dynamic";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -25,6 +25,9 @@ const META: Record<string, { title: string; spans: number[] }> = {
   trend: { title: "روند روزانه (۱۴ روز اخیر)", spans: [4, 6, 8, 12] },
   categories: { title: "سهم دسته‌بندی‌ها (این ماه)", spans: [4, 6, 8, 12] },
   recent: { title: "تراکنش‌های اخیر", spans: [12] },
+  forecast: { title: "پیش‌بینی پایان ماه", spans: [4, 6, 8, 12] },
+  alerts: { title: "هشدار بودجه", spans: [4, 6, 8, 12] },
+  yearly: { title: "خلاصه‌ی ۱۲ ماه سال", spans: [8, 12] },
 };
 
 const DEFAULT: Cfg[] = [
@@ -33,6 +36,9 @@ const DEFAULT: Cfg[] = [
   { id: "income", span: 6, collapsed: false },
   { id: "trend", span: 8, collapsed: false },
   { id: "categories", span: 4, collapsed: false },
+  { id: "forecast", span: 4, collapsed: false },
+  { id: "alerts", span: 4, collapsed: false },
+  { id: "yearly", span: 12, collapsed: false },
   { id: "recent", span: 12, collapsed: false },
 ];
 
@@ -149,6 +155,7 @@ export default function DashboardView() {
   const cats = (Object.entries(byCategory(expenses)) as [string, number][]).sort((a, b) => b[1] - a[1]);
   const catColor = (i: number) => PALETTE[i % PALETTE.length];
 
+  const today = jnow().date;
   const days = Array.from({ length: 14 }, (_, i) => jnow(new Date(Date.now() - (13 - i) * 86400000)).date);
   const dayTotal = (d: string, type: "برداشت" | "واریز") => sumOf(data.tx.filter((t) => t.date === d && t.type === type));
 
@@ -236,6 +243,63 @@ export default function DashboardView() {
         ) : (
           <p className={muted}>هزینه‌ای برای این ماه ثبت نشده.</p>
         );
+      case "forecast": {
+        const f = forecastSpend(data, month, today);
+        return f === null ? (
+          <p className={muted}>پیش‌بینی فقط برای ماه جاری نمایش داده می‌شود.</p>
+        ) : (
+          <>
+            <div className="text-2xl font-semibold text-gray-900 dark:text-white">{toFaMoney(f)}</div>
+            <div className={`${muted} mt-1`}>اگر روند فعلی ادامه پیدا کند، هزینه‌ی کل این ماه حدود این مبلغ است.</div>
+          </>
+        );
+      }
+      case "alerts": {
+        const al = budgetAlerts(data, month);
+        return al.length ? (
+          <ul className="space-y-3">
+            {al.map((a) => (
+              <li key={a.category}>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-800 dark:text-white/90">{a.category}</span>
+                  <span className={a.spent > a.limit ? "text-red-500" : "text-orange-500"}>{toFaDigits(String(Math.round((a.spent / a.limit) * 100)))}٪</span>
+                </div>
+                <div className="mt-1 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                  <div className={`h-full rounded-full ${a.spent > a.limit ? "bg-red-500" : "bg-orange-400"}`} style={{ width: `${Math.min(100, (a.spent / a.limit) * 100)}%` }} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className={muted}>همه‌ی دسته‌ها زیر ۸۰٪ سقف‌اند.</p>
+        );
+      }
+      case "yearly": {
+        const ys = yearSummary(data, month);
+        const opts: ApexOptions = {
+          chart: { type: "bar", toolbar: { show: false }, background: "transparent", fontFamily: "inherit" },
+          colors: ["#f04438", "#12b76a"],
+          plotOptions: { bar: { borderRadius: 4, columnWidth: "55%" } },
+          dataLabels: { enabled: false },
+          xaxis: { categories: MONTHS, labels: { style: { colors: text } } },
+          yaxis: { labels: { style: { colors: text }, formatter: (v: number) => faNum(v) } },
+          grid: { borderColor: gridColor },
+          legend: { position: "top", horizontalAlign: "right", labels: { colors: text } },
+          tooltip: { y: { formatter: (v: number) => toFaMoney(v) } },
+          theme: { mode: dark ? "dark" : "light" },
+        };
+        return (
+          <Chart
+            type="bar"
+            height={240}
+            options={opts}
+            series={[
+              { name: "هزینه", data: ys.map((y) => y.out) },
+              { name: "درآمد", data: ys.map((y) => y.inc) },
+            ]}
+          />
+        );
+      }
       case "recent":
         return <RecentTable onOpen={setEdit} />;
       default:

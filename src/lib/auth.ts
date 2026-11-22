@@ -1,6 +1,6 @@
 // shortcut: نام کاربری و هش رمز را اینجا بگذار؛ هش را با کد داخل راهنما بساز
-export const AUTH_USER = "Hashem-aqa";
-export const AUTH_HASH = "2edba77beccb68661236c1791e466504c8818f640f09fc28160b3e7008f20271";
+export const AUTH_USER = "PUT_USERNAME_HERE";
+export const AUTH_HASH = "PUT_HASH_HERE";
 
 export async function sha256Hex(text: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));

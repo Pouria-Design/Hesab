@@ -4,6 +4,8 @@ import { logout } from "@/components/auth-gate";
 import { GearIcon, LayoutGridIcon, ListIcon, LockIcon, PieChartIcon, TagIcon } from "@/icons";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useFinance } from "@/context/finance-context";
+import { toFaDigits } from "@/lib/finance";
 
 type IconType = typeof LayoutGridIcon;
 
@@ -43,6 +45,7 @@ function NavLink({ href, label, Icon, active, onClose }: { href: string; label: 
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const path = usePathname();
+  const { pendingCount } = useFinance();
   const active = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
 
   return (
@@ -73,6 +76,9 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       </nav>
 
       <div className="space-y-1 border-t border-gray-200 pt-3 dark:border-gray-800">
+        <div className={`px-3 pb-2 text-xs ${pendingCount > 0 ? "text-orange-500" : "text-gray-400 dark:text-gray-500"}`}>
+          {pendingCount > 0 ? `${toFaDigits(String(pendingCount))} تغییر در صف ارسال` : "همه‌ی تغییرات ذخیره شده‌اند"}
+        </div>
         <NavLink href="/settings" label="تنظیمات" Icon={GearIcon} active={active("/settings")} onClose={onClose} />
         <button
           type="button"

@@ -1,6 +1,7 @@
 "use client";
 
 import Sidebar from "@/components/finance/sidebar";
+import UndoToast from "@/components/finance/undo-toast";
 import { MenuTwoIcon } from "@/icons";
 import { type ReactNode, useState } from "react";
 
@@ -11,6 +12,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <Sidebar open={open} onClose={() => setOpen(false)} />
       {open && <div className="fixed inset-0 z-30 bg-black/40 lg:hidden" onClick={() => setOpen(false)} />}
+      <UndoToast />
 
       <div className="lg:mr-[260px]">
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-200 bg-white/90 px-4 py-3 backdrop-blur dark:border-gray-800 dark:bg-gray-900/90 lg:hidden">

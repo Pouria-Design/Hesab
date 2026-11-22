@@ -2,7 +2,7 @@
 
 import { useFinance } from "@/context/finance-context";
 import { useTheme } from "@/context/theme-context";
-import { byCategory, categoriesOf, faNum, inMonth, sumOf, toFaDigits, toFaMoney } from "@/lib/finance";
+import { addMonths, byCategory, categoriesOf, categorize, faNum, inMonth, sumOf, toFaDigits, toFaMoney } from "@/lib/finance";
 import type { ApexOptions } from "apexcharts";
 import dynamic from "next/dynamic";
 import { useState } from "react";
@@ -15,18 +15,39 @@ export default function CategoriesView() {
   const { theme } = useTheme();
   const [kw, setKw] = useState("");
   const [kc, setKc] = useState("");
+  const [note, setNote] = useState("");
 
   if (!month) return null;
 
   const dark = theme === "dark";
   const expenses = inMonth(data, month, "برداشت");
   const total = sumOf(expenses);
-  const rows = (Object.entries(byCategory(expenses)) as [string, number][]).sort((a, b) => b[1] - a[1]);
+  const spent = byCategory(expenses);
+  const prev = byCategory(inMonth(data, addMonths(month, -1), "برداشت"));
+  const rows = (Object.entries(spent) as [string, number][]).sort((a, b) => b[1] - a[1]);
   const counts = expenses.reduce<Record<string, number>>((m, t) => {
     const c = t.category || "نامشخص";
     m[c] = (m[c] || 0) + 1;
     return m;
   }, {});
+
+  // تراکنش‌هایی که عنوان دارند و دسته ندارند، ولی قوانین فعلی برایشان دسته پیدا می‌کنند
+  const plan = data.tx
+    .filter((t) => t.title && !t.category)
+    .map((t) => ({ t, cat: categorize(t.title, data.rules) }))
+    .filter((x) => x.cat);
+
+  const applyAll = () => {
+    plan.forEach(({ t, cat }) => write({ action: "update", id: t.id, title: t.title, category: cat }));
+    setNote(`${toFaDigits(String(plan.length))} تراکنش دسته‌بندی شد`);
+  };
+
+  const addRule = () => {
+    if (!kw.trim() || !kc.trim()) return;
+    write({ action: "rule", keyword: kw.trim(), category: kc.trim() });
+    setKw("");
+    setKc("");
+  };
 
   const donut: ApexOptions = {
     chart: { type: "donut", background: "transparent", fontFamily: "inherit" },
@@ -38,13 +59,6 @@ export default function CategoriesView() {
     plotOptions: { pie: { donut: { size: "70%" } } },
     tooltip: { y: { formatter: (v: number) => toFaMoney(v) } },
     theme: { mode: dark ? "dark" : "light" },
-  };
-
-  const addRule = () => {
-    if (!kw.trim() || !kc.trim()) return;
-    write({ action: "rule", keyword: kw.trim(), category: kc.trim() });
-    setKw("");
-    setKc("");
   };
 
   return (
@@ -78,11 +92,14 @@ export default function CategoriesView() {
                   <th className="px-3 py-2 text-start font-medium">تعداد</th>
                   <th className="px-3 py-2 text-start font-medium whitespace-nowrap">مبلغ</th>
                   <th className="px-3 py-2 text-start font-medium">درصد</th>
+                  <th className="px-3 py-2 text-start font-medium whitespace-nowrap">نسبت به ماه قبل</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map(([c, v], i) => {
                   const pct = total ? Math.round((v / total) * 100) : 0;
+                  const p = prev[c] || 0;
+                  const diff = p ? Math.round(((v - p) / p) * 100) : null;
                   return (
                     <tr key={c} className="border-t border-gray-100 dark:border-gray-800">
                       <td className="px-3 py-3">
@@ -101,6 +118,15 @@ export default function CategoriesView() {
                           <span className="text-gray-500 dark:text-gray-400">{toFaDigits(String(pct))}٪</span>
                         </div>
                       </td>
+                      <td className="px-3 py-3 whitespace-nowrap">
+                        {diff === null ? (
+                          <span className={muted}>—</span>
+                        ) : diff > 0 ? (
+                          <span className="text-red-500">↑ {toFaDigits(String(diff))}٪</span>
+                        ) : (
+                          <span className="text-green-600 dark:text-green-400">↓ {toFaDigits(String(-diff))}٪</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -116,6 +142,19 @@ export default function CategoriesView() {
           <h2 className="text-base font-medium text-gray-900 dark:text-white">قوانین دسته‌بندی خودکار</h2>
           <p className={muted}>اگر کلیدواژه داخل عنوان تراکنش باشد، تراکنش در دسته‌ی مربوطه قرار می‌گیرد. قانون جدید فقط اضافه می‌شود؛ حذف از شیت «قوانین» انجام می‌شود.</p>
         </div>
+
+        {plan.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-brand-50 p-3 dark:bg-brand-500/15">
+            <span className="text-sm text-gray-800 dark:text-white/90">
+              {toFaDigits(String(plan.length))} تراکنش بدون دسته با قوانین فعلی قابل دسته‌بندی است
+            </span>
+            <button type="button" onClick={applyAll} className={btnPri}>
+              اعمال قوانین
+            </button>
+          </div>
+        )}
+        {note && <p className={muted}>{note}</p>}
+
         {data.rules.map((r, i) => (
           <div key={`${r[0]}-${i}`} className="flex items-center justify-between border-b border-gray-100 py-2 text-sm last:border-0 dark:border-gray-800">
             <span className="text-gray-800 dark:text-white/90">{r[0]}</span>
