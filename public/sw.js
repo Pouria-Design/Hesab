@@ -1,5 +1,5 @@
-const V = "fin-v3";
-const SHELL = ["/", "/manifest.json", "/images/logo/logo-icon.svg"];
+const V = "hb-v4";
+const SHELL = ["/", "/manifest.json", "/icon.svg"];
 const API_DB = "fin";
 
 self.addEventListener("install", (e) => e.waitUntil(caches.open(V).then((c) => c.addAll(SHELL))));

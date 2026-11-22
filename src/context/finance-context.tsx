@@ -28,7 +28,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const [month, setMonth] = useState("");
   const [token, setToken] = useState<string | null>(null);
   const [needToken, setNeedToken] = useState(false);
-  const [accent, setAccentState] = useState("#465fff");
+  const [accent, setAccentState] = useState("#12b76a");
 
   // بار اول: کش محلی نشان داده می‌شود، بعد سرور جواب می‌دهد
   useEffect(() => {
@@ -49,7 +49,11 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    document.documentElement.style.setProperty("--color-brand-500", accent);
+    const st = document.documentElement.style;
+    st.setProperty("--color-brand-500", accent);
+    st.setProperty("--color-brand-600", `color-mix(in srgb, ${accent} 85%, black)`);
+    st.setProperty("--color-brand-400", `color-mix(in srgb, ${accent} 80%, white)`);
+    st.setProperty("--color-brand-50", `color-mix(in srgb, ${accent} 12%, white)`);
   }, [accent]);
 
   const sync = useCallback(async (t: string) => {

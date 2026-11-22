@@ -1,3 +1,4 @@
+import AuthGate from "@/components/auth-gate";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { FinanceProvider } from "@/context/finance-context";
 import { ThemeProvider } from "@/context/theme-context";
@@ -13,16 +14,17 @@ import "./globals.css";
 const font = Vazirmatn({ subsets: ["arabic", "latin"], variable: "--font-vazirmatn" });
 
 export const metadata: Metadata = {
-  title: "حساب",
+  title: "Hashem-Budget",
   description: "مدیریت مالی شخصی",
   manifest: "/manifest.json",
+  icons: { icon: "/icon.svg" },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#f5f6f8",
+  themeColor: "#12b76a",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -30,11 +32,13 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="fa" dir="rtl" className={font.variable}>
       <body className={cn("relative isolate dark:bg-gray-900")}>
         <ThemeProvider>
-          <FinanceProvider>
-            <DirectionProvider direction="rtl">
-              <TooltipProvider>{children}</TooltipProvider>
-            </DirectionProvider>
-          </FinanceProvider>
+          <AuthGate>
+            <FinanceProvider>
+              <DirectionProvider direction="rtl">
+                <TooltipProvider>{children}</TooltipProvider>
+              </DirectionProvider>
+            </FinanceProvider>
+          </AuthGate>
         </ThemeProvider>
       </body>
     </html>

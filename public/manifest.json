@@ -1,12 +1,12 @@
 {
-  "name": "حساب",
-  "short_name": "حساب",
+  "name": "Hashem-Budget",
+  "short_name": "Hashem-Budget",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "dir": "rtl",
   "lang": "fa",
-  "background_color": "#f5f6f8",
-  "theme_color": "#f5f6f8",
-  "icons": [{ "src": "/images/logo/logo-icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+  "background_color": "#f9fafb",
+  "theme_color": "#12b76a",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
 }
