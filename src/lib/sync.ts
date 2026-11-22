@@ -1,7 +1,7 @@
 import type { Data, Op } from "./finance";
 
-// shortcut: ID دیپلوی Apps Script را اینجا و در sw.js (از kv خوانده می‌شود) یکی نگه دار
-export const API_URL = "https://script.google.com/macros/s/PUT_ID_HERE/exec";
+// همه‌ی درخواست‌ها از Worker خودمان می‌روند؛ Worker با Google Sheets حرف می‌زند
+export const API_URL = "/api";
 
 const DB_NAME = "fin";
 let dbp: Promise<IDBDatabase> | null = null;
@@ -33,6 +33,7 @@ interface QueueItem {
   body: Op;
 }
 
+// شناسه با زمان شروع می‌شود تا صف به ترتیب ثبت ارسال شود
 let seq = 0;
 export const enqueue = (body: Op) =>
   store("q", "readwrite", (s) => s.put({ id: `${String(Date.now()).padStart(15, "0")}-${String(++seq).padStart(6, "0")}`, body }));
@@ -52,17 +53,19 @@ export function flushSerial(token: string): Promise<"ok" | "auth" | "offline"> {
 
 async function flush(token: string): Promise<"ok" | "auth" | "offline"> {
   for (const it of await queued()) {
+    let j: { ok?: boolean } = {};
     try {
       const r = await fetch(`${API_URL}?token=${encodeURIComponent(token)}&app=1`, {
         method: "POST",
         headers: { "Content-Type": "text/plain" },
         body: JSON.stringify(it.body),
       });
-      const j = await r.json();
-      if (!j.ok) return "auth";
+      if (r.status >= 500) return "offline";
+      j = await r.json();
     } catch {
       return "offline";
     }
+    if (!j.ok) return "auth";
     await dequeue(it.id);
   }
   return "ok";
@@ -70,7 +73,9 @@ async function flush(token: string): Promise<"ok" | "auth" | "offline"> {
 
 export async function fetchAll(token: string): Promise<Data | "auth" | "offline"> {
   try {
-    const j = await (await fetch(`${API_URL}?token=${encodeURIComponent(token)}`)).json();
+    const r = await fetch(`${API_URL}?token=${encodeURIComponent(token)}`);
+    if (r.status >= 500) return "offline";
+    const j = await r.json();
     if (!j.ok) return "auth";
     return { tx: j.tx, accounts: j.accounts, rules: j.rules, budgets: j.budgets, settings: j.settings };
   } catch {
