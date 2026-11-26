@@ -12,16 +12,16 @@ assert.equal(parseAmount("۱٬۲۳۴٬۰۰۰ تومان"), 1234000);
 assert.equal(categorize("خرید از سوپر مارکت", [["سوپر", "خوراک"]]), "خوراک");
 assert.equal(categorize("نامشخص", [["سوپر", "خوراک"]]), "");
 
-let d: Data = applyOp(EMPTY, { action: "setting", key: "initial_balance", value: "1000" });
-d = applyOp(d, { action: "setting", key: "initial_at", value: "1405.08.30 10:00" });
-const base = { account: "x", title: "", category: "" };
-d = applyOp(d, { action: "add", t: { ...base, id: "a", date: "1405.08.30", time: "11:00", type: "برداشت", amount: 300 } });
-d = applyOp(d, { action: "add", t: { ...base, id: "b", date: "1405.08.30", time: "09:00", type: "واریز", amount: 50 } });
-assert.equal(balanceOf(d), 700, "تراکنش قبل از موجودی اولیه نباید حساب شود");
+// موجودی فقط از آخرین پیامک می‌آید
+assert.equal(balanceOf(EMPTY), null);
+assert.equal(balanceOf({ ...EMPTY, balance: { value: 7969608, at: "1405.08.30 13:17" } }), 7969608);
+
+let d: Data = applyOp(EMPTY, { action: "add", t: { id: "a", date: "1405.08.30", time: "11:00", type: "برداشت", amount: 300, account: "", title: "", category: "" } });
+assert.equal(d.tx.length, 1);
 d = applyOp(d, { action: "update", id: "a", title: "نان", category: "خوراک" });
 assert.equal(d.tx.find((t) => t.id === "a")?.title, "نان");
 d = applyOp(d, { action: "delete", id: "a" });
-assert.equal(d.tx.length, 1);
+assert.equal(d.tx.length, 0);
 d = applyOp(d, { action: "budget", category: "خوراک", amount: 500 });
 d = applyOp(d, { action: "budget", category: "خوراک", amount: 600 });
 assert.deepEqual(d.budgets, [["خوراک", "600"]]);

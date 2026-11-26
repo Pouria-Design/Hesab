@@ -77,7 +77,7 @@ export async function fetchAll(token: string): Promise<Data | "auth" | "offline"
     if (r.status >= 500) return "offline";
     const j = await r.json();
     if (!j.ok) return "auth";
-    return { tx: j.tx, accounts: j.accounts, rules: j.rules, budgets: j.budgets, settings: j.settings };
+    return { tx: j.tx, accounts: j.accounts, rules: j.rules, budgets: j.budgets, settings: j.settings, balance: j.balance ?? null };
   } catch {
     return "offline";
   }

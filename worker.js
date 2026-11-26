@@ -1,194 +1,120 @@
-// shortcut: کلیدهای ورود و شناسه‌ی شیت در Secrets/Variables کلودفلر است، نه اینجا
-let tokenCache = null;
-let metaCache = null;
-const enc = encodeURIComponent;
-const API = "https://sheets.googleapis.com/v4/spreadsheets";
+import { isBank, jnow, parseSms } from "./sms-parse.js";
 
-const b64url = (buf) => {
-  let s = "";
-  for (const b of new Uint8Array(buf)) s += String.fromCharCode(b);
-  return btoa(s).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
-};
-const strB64url = (str) => b64url(new TextEncoder().encode(str));
+// APP_TOKEN برای برنامه و پیامک؛ DB همان دیتابیس D1 است
+const H = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
+const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: H });
 
-async function accessToken(env) {
-  if (tokenCache && tokenCache.exp > Date.now() + 60000) return tokenCache.token;
-  const now = Math.floor(Date.now() / 1000);
-  const header = strB64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const claims = strB64url(
-    JSON.stringify({
-      iss: env.SA_EMAIL,
-      scope: "https://www.googleapis.com/auth/spreadsheets",
-      aud: "https://oauth2.googleapis.com/token",
-      iat: now,
-      exp: now + 3600,
-    })
-  );
-  const pem = env.SA_KEY.replace(/\\n/g, "\n");
-  const der = Uint8Array.from(atob(pem.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "")), (c) => c.charCodeAt(0));
-  const key = await crypto.subtle.importKey("pkcs8", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(`${header}.${claims}`));
-  const r = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${header}.${claims}.${b64url(sig)}` }),
-  });
-  const j = await r.json();
-  if (!j.access_token) throw new Error("token: " + (j.error_description || j.error || r.status));
-  tokenCache = { token: j.access_token, exp: Date.now() + j.expires_in * 1000 };
-  return tokenCache.token;
+async function sha256Hex(text) {
+  const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
-async function gs(env, path, init = {}) {
-  const t = await accessToken(env);
-  const r = await fetch(`${API}/${env.SHEET_ID}${path}`, {
-    ...init,
-    headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
-  });
-  if (!r.ok) throw new Error(`sheets ${r.status}: ${(await r.text()).slice(0, 200)}`);
-  return r.json();
-}
-
-async function sheetInfo(env) {
-  if (!metaCache) {
-    const j = await gs(env, "?fields=sheets(properties(sheetId,title,index))");
-    metaCache = j.sheets.map((s) => s.properties).sort((a, b) => a.index - b.index);
+// پیامک بانک: ثبت تراکنش، یا اگر خوانده نشد، صف بررسی
+async function storeSms(env, raw) {
+  if (!isBank(raw)) return { ignored: true };
+  const id = await sha256Hex(raw);
+  const p = parseSms(raw);
+  const now = jnow();
+  if (!p) {
+    await env.DB.prepare("INSERT OR IGNORE INTO review (id, raw, received) VALUES (?, ?, ?)")
+      .bind(id, raw, `${now.date} ${now.time}`)
+      .run();
+    return { parsed: false };
   }
-  return metaCache;
-}
-
-const byName = (list, name) => {
-  const f = list.find((p) => p.title === name);
-  if (!f) throw new Error(`sheet not found: ${name}`);
-  return f;
-};
-
-async function colA(env, title) {
-  const j = await gs(env, `/values/${enc(`'${title}'!A:A`)}?valueRenderOption=UNFORMATTED_VALUE`);
-  return (j.values || []).map((r) => r[0] ?? "");
-}
-
-async function rowOf(env, title, id) {
-  const ids = await colA(env, title);
-  const i = ids.findIndex((v) => String(v) === String(id));
-  return i > 0 ? i + 1 : 0;
-}
-
-async function upsert(env, title, key, vals) {
-  const keys = await colA(env, title);
-  const i = keys.findIndex((v) => String(v) === String(key));
-  if (i > 0) {
-    await gs(env, `/values/${enc(`'${title}'!A${i + 1}:B${i + 1}`)}?valueInputOption=RAW`, {
-      method: "PUT",
-      body: JSON.stringify({ values: [vals] }),
-    });
-  } else {
-    await gs(env, `/values/${enc(`'${title}'!A:B`)}:append?valueInputOption=RAW`, {
-      method: "POST",
-      body: JSON.stringify({ values: [vals] }),
-    });
-  }
+  const date = p.date || now.date;
+  const time = p.time || now.time;
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO tx (id, date, time, type, subtype, total, amount, rand, balance, account, title, source, category, raw, sort_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 'sms', '', ?, ?)`
+  )
+    .bind(id, date, time, p.type, p.subtype, p.total, p.amount, p.rand, p.balance, raw, `${date} ${time}`)
+    .run();
+  return { parsed: true };
 }
 
 async function loadAll(env) {
-  const p = await sheetInfo(env);
-  const names = [p[0].title, p[1].title, byName(p, "قوانین").title, byName(p, "بودجه").title, byName(p, "تنظیمات").title];
-  const q = new URLSearchParams({ valueRenderOption: "UNFORMATTED_VALUE" });
-  q.append("ranges", `'${names[0]}'!A2:N`);
-  q.append("ranges", `'${names[1]}'!A2:B`);
-  q.append("ranges", `'${names[2]}'!A2:B`);
-  q.append("ranges", `'${names[3]}'!A2:B`);
-  q.append("ranges", `'${names[4]}'!A2:B`);
-  const j = await gs(env, `/values:batchGet?${q}`);
-  const [t, a, ru, bu, se] = j.valueRanges.map((x) => x.values || []);
-  const s = (v) => (v == null ? "" : String(v));
-  const rows = (v) => v.filter((r) => s(r[0]) !== "").map((r) => r.map(s));
+  const db = env.DB;
+  const [tx, acc, rules, budgets, settings] = await db.batch([
+    db.prepare("SELECT id, date, time, type, subtype, total, amount, rand, balance, account, title, source, category FROM tx ORDER BY sort_at"),
+    db.prepare("SELECT last4, name FROM accounts ORDER BY last4"),
+    db.prepare("SELECT keyword, category FROM rules ORDER BY id"),
+    db.prepare("SELECT category, amount FROM budgets"),
+    db.prepare("SELECT key, value FROM settings"),
+  ]);
+  // موجودی حساب = موجودی داخل آخرین پیامک بانک (بدون توجه به مبلغ تراکنش‌ها)
+  const lb = await db
+    .prepare("SELECT balance, sort_at FROM tx WHERE source = 'sms' AND balance IS NOT NULL ORDER BY sort_at DESC, rowid DESC LIMIT 1")
+    .first();
   return {
-    tx: t
-      .filter((r) => s(r[0]) !== "")
-      .map((r) => ({
-        id: s(r[0]), date: s(r[1]), time: s(r[2]), type: s(r[3]), subtype: s(r[4]),
-        total: +r[5] || 0, amount: +r[6] || 0, rand: +r[7] || 0, balance: +r[8] || 0,
-        account: s(r[9]), title: s(r[10]), source: s(r[11]), category: s(r[13]),
-      })),
-    accounts: rows(a),
-    rules: rows(ru),
-    budgets: rows(bu),
-    settings: Object.fromEntries(rows(se)),
+    tx: tx.results.map((r) => ({
+      id: r.id, date: r.date, time: r.time, type: r.type, subtype: r.subtype || "",
+      total: r.total || 0, amount: r.amount || 0, rand: r.rand || 0, balance: r.balance || 0,
+      account: r.account || "", title: r.title || "", source: r.source, category: r.category || "",
+    })),
+    accounts: acc.results.map((r) => [String(r.last4), String(r.name)]),
+    rules: rules.results.map((r) => [r.keyword, r.category]),
+    budgets: budgets.results.map((r) => [r.category, String(r.amount)]),
+    settings: Object.fromEntries(settings.results.map((r) => [r.key, String(r.value)])),
+    balance: lb ? { value: lb.balance, at: lb.sort_at } : null,
   };
 }
 
 async function apply(env, b) {
-  const p = await sheetInfo(env);
-  const tx = p[0].title;
-  const bud = byName(p, "بودجه").title;
-  const set = byName(p, "تنظیمات").title;
-  const rul = byName(p, "قوانین").title;
-
-  if (b.action === "add") {
-    const ids = await colA(env, tx);
-    if (ids.some((v) => String(v) === String(b.t.id))) return;
-    const t = b.t;
-    await gs(env, `/values/${enc(`'${tx}'!A:N`)}:append?valueInputOption=RAW`, {
-      method: "POST",
-      body: JSON.stringify({ values: [[t.id, t.date, t.time, t.type, "", t.amount, t.amount, 0, "", t.account, t.title, "manual", "", t.category]] }),
-    });
-  } else if (b.action === "update") {
-    const row = await rowOf(env, tx, b.id);
-    if (!row) return;
-    await gs(env, "/values:batchUpdate", {
-      method: "POST",
-      body: JSON.stringify({
-        valueInputOption: "RAW",
-        data: [
-          { range: `'${tx}'!K${row}`, values: [[b.title]] },
-          { range: `'${tx}'!N${row}`, values: [[b.category]] },
-        ],
-      }),
-    });
-  } else if (b.action === "delete") {
-    const row = await rowOf(env, tx, b.id);
-    if (!row) return;
-    await gs(env, ":batchUpdate", {
-      method: "POST",
-      body: JSON.stringify({
-        requests: [{ deleteDimension: { range: { sheetId: p[0].sheetId, dimension: "ROWS", startIndex: row - 1, endIndex: row } } }],
-      }),
-    });
-  } else if (b.action === "budget") {
-    await upsert(env, bud, b.category, [b.category, b.amount]);
-  } else if (b.action === "setting") {
-    await upsert(env, set, b.key, [b.key, b.value]);
-  } else if (b.action === "rule") {
-    await gs(env, `/values/${enc(`'${rul}'!A:B`)}:append?valueInputOption=RAW`, {
-      method: "POST",
-      body: JSON.stringify({ values: [[b.keyword, b.category]] }),
-    });
+  const db = env.DB;
+  switch (b.action) {
+    case "add":
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO tx (id, date, time, type, subtype, total, amount, rand, balance, account, title, source, category, raw, sort_at)
+           VALUES (?, ?, ?, ?, '', ?, ?, 0, NULL, ?, ?, 'manual', ?, '', ?)`
+        )
+        .bind(b.t.id, b.t.date, b.t.time, b.t.type, b.t.amount, b.t.amount, b.t.account, b.t.title, b.t.category, `${b.t.date} ${b.t.time}`)
+        .run();
+      return;
+    case "update":
+      await db.prepare("UPDATE tx SET title = ?, category = ? WHERE id = ?").bind(b.title, b.category, b.id).run();
+      return;
+    case "delete":
+      await db.prepare("DELETE FROM tx WHERE id = ?").bind(b.id).run();
+      return;
+    case "budget":
+      await db
+        .prepare("INSERT INTO budgets (category, amount) VALUES (?, ?) ON CONFLICT(category) DO UPDATE SET amount = excluded.amount")
+        .bind(b.category, b.amount)
+        .run();
+      return;
+    case "setting":
+      await db
+        .prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .bind(b.key, String(b.value))
+        .run();
+      return;
+    case "rule":
+      await db.prepare("INSERT INTO rules (keyword, category) VALUES (?, ?)").bind(b.keyword, b.category).run();
+      return;
+    default:
+      throw new Error("unknown action");
   }
 }
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname !== "/api") return env.ASSETS.fetch(request);
-
-    const json = (o, status = 200) =>
-      new Response(JSON.stringify(o), {
-        status,
-        headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
-      });
-
+    if (url.pathname !== "/api" && url.pathname !== "/sms") return env.ASSETS.fetch(request);
     if (!env.APP_TOKEN || url.searchParams.get("token") !== env.APP_TOKEN) return json({ ok: false, error: "auth" }, 401);
 
     try {
+      if (url.pathname === "/sms") {
+        if (request.method !== "POST") return json({ ok: false }, 405);
+        return json({ ok: true, ...(await storeSms(env, await request.text())) });
+      }
       if (request.method === "GET") return json({ ok: true, ...(await loadAll(env)) });
       if (request.method === "POST") {
         await apply(env, JSON.parse(await request.text()));
         return json({ ok: true });
       }
-      return json({ ok: false, error: "method" }, 405);
+      return json({ ok: false }, 405);
     } catch (err) {
-      // ۵۰۳ یعنی خطای موقت؛ برنامه این را «آفلاین» می‌بیند و توکن را پاک نمی‌کند
       return json({ ok: false, error: String(err && err.message ? err.message : err) }, 503);
     }
   },

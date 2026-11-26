@@ -22,6 +22,7 @@ export interface Data {
   rules: string[][]; // [کلیدواژه، دسته]
   budgets: string[][]; // [دسته، سقف ماهانه]
   settings: Record<string, string>;
+  balance?: { value: number; at: string } | null;
 }
 
 export interface NewTx {
@@ -141,15 +142,9 @@ export function categoriesOf(d: Data): string[] {
   ];
 }
 
-// موجودی = موجودی اولیه + تراکنش‌هایی که بعد از ثبت آن آمده‌اند
+// موجودی حساب = موجودی داخل آخرین پیامک بانک؛ مبلغ تراکنش‌ها روی آن اثری ندارد
 export function balanceOf(d: Data): number | null {
-  const init = d.settings.initial_balance;
-  if (init === undefined || init === "") return null;
-  const at = d.settings.initial_at || "";
-  return d.tx.reduce(
-    (b, t) => (at && sortKey(t) > at ? b + (t.type === "واریز" ? t.total : -t.total) : b),
-    +init
-  );
+  return d.balance ? d.balance.value : null;
 }
 
 export function applyOp(d: Data, op: Op): Data {

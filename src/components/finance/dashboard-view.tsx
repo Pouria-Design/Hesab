@@ -150,7 +150,6 @@ export default function DashboardView() {
   const exp = sumOf(expenses);
   const inc = sumOf(inMonth(data, month, "واریز"));
   const bal = balanceOf(data);
-  const lastBank = recentTx(data).find((t) => t.balance > 0);
 
   const cats = (Object.entries(byCategory(expenses)) as [string, number][]).sort((a, b) => b[1] - a[1]);
   const catColor = (i: number) => PALETTE[i % PALETTE.length];
@@ -190,9 +189,9 @@ export default function DashboardView() {
       case "balance":
         return (
           <>
-            <div className="text-3xl font-semibold text-gray-900 dark:text-white">{bal === null ? "تنظیم نشده" : toFaMoney(bal)}</div>
+            <div className="text-3xl font-semibold text-gray-900 dark:text-white">{bal === null ? "هنوز پیامکی نیامده" : toFaMoney(bal)}</div>
             <div className={`${muted} mt-1`}>
-              {bal === null ? "از تنظیمات موجودی اولیه را وارد کن." : lastBank ? `آخرین موجودی بانک: ${toFaMoney(lastBank.balance)}` : ""}
+              {data.balance ? `از آخرین پیامک بانک، ${toFaDigits(data.balance.at)}` : "موجودی از اولین پیامک بانک خوانده می‌شود."}
             </div>
           </>
         );
